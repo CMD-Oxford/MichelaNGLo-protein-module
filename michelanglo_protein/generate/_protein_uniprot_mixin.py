@@ -1,5 +1,5 @@
 ############################# UNIPROT PARSING METHODS #############################
-from protein.generate._protein_base_mixin import _BaseMixin
+from michelanglo_protein.generate._protein_base_mixin import _BaseMixin
 # this class requires mixin classes from `_protein_*_mixin.py`. The XML parser for Uniprot requires a special ET from `.ET_monkeypatched`.
 from ..core import Structure
 
@@ -236,7 +236,7 @@ class _UniprotMixin:
         for group in self.features:
             for i in range(len(self.features[group])):
                 self.features[group][i]['type'] = group  ## in case of flattening.
-                if self.features[group][i]['description'] == '-':
+                if 'description' in self.features[group][i] and self.features[group][i]['description'] == '-':
                     self.features[group][i]['description'] = group
         if self.uniprot == '':
             if len(self.accession_list):

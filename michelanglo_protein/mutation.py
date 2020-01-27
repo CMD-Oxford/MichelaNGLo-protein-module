@@ -3,10 +3,10 @@ from warnings import warn
 
 class Mutation:
     """
-    Stores the mutation. Not to be confused with the namedtuple Variant, which stores gNOMAD mutations.
+    Stores the mutation. Not to be confused with the namedtuple Variant, which stores gnomAD mutations.
     >>> Mutation('p.M12D')
     >>> Mutation('M12D')
-    >>> Mutation(gNOMAD_variant_instance)
+    >>> Mutation(gnomAD_variant_instance)
     This class does not do analyses with Protein, but ProteinAnalysis do. Here however, wordy conversions happen.
     """
     # the following variable was made in apriori_effect.py
@@ -448,7 +448,7 @@ class Mutation:
         self.surface_expose = ''
         self.clean_mutation = None
         #self.exposure_effect see property.getter exposure_effect
-        self.elm = []  # protein.check_elm(mutation) fills it.
+        self.elm = []  # michelanglo_protein.check_elm(mutation) fills it.
         if mutation:
             if not isinstance(mutation,str): #it is the namedtuple `Variant` (gnomAD snp)!
                 mutation = mutation.description
@@ -549,7 +549,7 @@ class Mutation:
             elif 'polar' in self.apriori_effect:
                 return f'Protein cores are generally hydrophobic, so a change in polarity is generally destabilising {lowconc}.'
             elif 'smaller' in self.apriori_effect:
-                return f'Changes to smaller residues remove some interactions, thus weakly destabilising the protein (potentially lowering protein concentrations) but most likely have no effect.'
+                return f'Changes to smaller residues remove some interactions, thus weakly destabilising the protein (potentially lowering michelanglo_protein concentrations) but most likely have no effect.'
             else:
                 return f'Mutations in protein cores are generally destabilising {lowconc}, but the mutation is very mild.'
         elif self.surface_expose == 'partially buried':

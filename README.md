@@ -1,13 +1,67 @@
-## Protein module of VENUS (SNV analsyer)
+## Protein module for Michelanglo and VENUS (formerly SNV analyser)
 
-The `protein` module collects all the data needed for analysing variants.
+The `michelanglo_protein` module collects all the data needed for analysing variants.
+    
+    p = ProteinAnalyser(uniprot = 'Q86V25').load()
+    print(p)
+    p.mutation = Mutation('p.N127W')
+    p.analyse_structure()
+    print(p.get_features_near_position())
+    print(p.get_gnomAD_near_position())
+    print(p.model.get_structure_neighbours())
+    print(p.get_superficiality())
+    
+The data loaded is either gatherered from various databases, some of which need splitting (_vide infra_ or `create.py`).
+If it is just the one gene, you can use the following, which will retrieve the Uniprot data of the one gene (failing to get external data if unavailable):
 
-    >>> from protein import Protein
-    >>> Protein(uniprot = 'Q9NWZ3').parse_all('parallel')
+    p = ProteinGatherer(uniprot='Q86V25')
+    p.parse_uniprot()
+    
+
+The site [michelanglo.sgc.ox.ac.uk](https://michelanglo.sgc.ox.ac.uk) depends on three repos:
+* [MichelaNGLo-app](https://github.com/matteoferla/MichelaNGLo)
+* [MichelaNGLo-transpiler](https://github.com/matteoferla/MichelaNGLo-transpiler)
+* **MichelaNGLo-protein-module**
+
+This module can be used independently of Michelanglo app module, but requires the transpiler module.
+
+If you are interested in the gene/protein name synonyms to uniprot mapping files see 
+[Name synomyms to Uniprot](https://github.com/matteoferla/Name-synomyms-to-Uniprot).
+
+If you want human protein and don't want to generate the data (i.e. by running `create.py`) see [human protein](https://github.com/matteoferla/MichelaNGLo-human-protein-data).
+
+For installation instructions see relevant sections in [Michelanglo deployment](https://github.com/matteoferla/MichelaNGLo-app/blob/master/git_docs/deploy.md).
 
 ### files within protein module
 
-The `protein` module's `__init__.py` file contains the `Protein` and `Mutation` classes. But `Protein` is so big it is split across three files, it's mixin base classes are in `protein._protein_uniprot_mixin` (handles uniprot) and `protein._protein_base_mixin.py` (magic methods except `__init__`).
+The `michelanglo_protein` module contains a `.generate` subfolder.
+For speed at time of a request the module preparses a lot of things thanks to the `.generate` submodule.
+Initially the Uniprot data was fetched online and parsed on the fly —technically this should still be possible with a few tweaks.
+
+There are a few "protein" classes.
+
+* These have different roles, but are all based off `ProteinCore` class.
+* The parser protein class from `.generate` is `ProteinGatherer`, this has many fetching parts that are fault tolerant (changeable in settings).
+* For analysis of a mutation `ProteinAnalyser` is used.
+
+Additionally, there are classes whose instances are bound to these:
+
+* `.settings`, instance of `GlobalSettings`, a singleton class, which controls the settings and folders and actually fetches the initial data (see below).
+* `Variant` instances appear in lists. gnomAD etc.
+* whereas `ProteinAnalyser.mutation` is an instance of `Mutation`
+* `Structure` instances appear in lists. Stores crystal data.
+* `StructureAnalyser` is a special case of the above for `ProteinAnalyser.structure`
+
+## GlobalSettings
+GlobalSettings appears as `.settings` of various classes. It is a singleton class, so the changes are global.
+It is instatiated in `settings_handler.py`, but it does not create folders etc. until the `.startup` method is called (directly or indirectly by attempting anything).
+
+    global_settings.verbose = True False
+    global_settings.startup(data_folder='My-data')
+    global_settings.retrieve_references(ask=False, refresh=False)
+
+## Mixin classes making ProteinGatherer
+`ProteinGatherer` is so big it is split across three files, it's mixin base classes are in `protein._protein_uniprot_mixin` (handles uniprot) and `protein._protein_base_mixin.py` (magic methods except `__init__`).
 
 The `_UniprotMixin` requires Element-tree to be monkeypatched, which is done in `ET_monkeypatch`.
 
@@ -15,8 +69,8 @@ The `_UniprotMixin` requires Element-tree to be monkeypatched, which is done in 
 
 The where-is-what logistics and other settings is stored in `Protein.settings`, which is an instance of `protein.settings_handler.GlobalSettings()`.
 
-    >>> from protein import Protein
-    >>> Protein.settings.init('temp_just_for_today')  # create the folders.
+    >>> from protein.generate import ProteinGatherer as Protein
+    >>> Protein.settings.startup('temp_just_for_today')  # create the folders.
     >>> Protein.settings.verbose = True
     >>> Protein.settings.missing_attribute_tolerant = True
     >>> Protein(uniprot = 'Q9NWZ3').foo
@@ -43,6 +97,8 @@ The data is a big. It needs slimming as unfortunately it has gotten bloated. So 
 The module `protein.generate` creates the needed files.
 
 At some point I started writing `settings.retrieve_references()` but stopped as it would have been for the once and some reference require passwords and some change faster than stairways in Hogwarts (_ie._ NCBI).
+It mostly works. But downloading large datasets such as gnomAD will run out of RAM as it currently is not streamed.
+Also as of December 2019 there is no exome gnomAD v3. So it has to be made from the gargantuan dataset.
 
 
 NB. The script without the data will fetch off the web the Uniprot (only `.parse_uniprot()` will work without screaming).
@@ -50,13 +106,18 @@ NB. The script without the data will fetch off the web the Uniprot (only `.parse
 
 #### Current requirements that are implemented
 
-| Resource | Location | Reason | Last checked |
-| --- | --- | --- | --- |
-| Uniprot | [ftp://ftp.uniprot.org/pub/databases/uniprot/current_release/knowledgebase/complete/uniprot_sprot.xml.gz](ftp://ftp.uniprot.org/pub/databases/uniprot/current_release/knowledgebase/complete/uniprot_sprot.xml.gz) | Most of the data comes from Uniprot | 15/03/2019 |
-| NCBI PDB BLAST DB | [ftp://ftp.ncbi.nlm.nih.gov/blast/db/pdbaa.tar.gz](ftp://ftp.ncbi.nlm.nih.gov/blast/db/pdbaa.tar.gz)  | Needed to find homogues with crystal structures | 15/03/2019 |
+See `protein/settings_handler` the class attribute`GlobalSettings.addresses` (or `Protein.settings.addresses`).
 
+### Offset
 
-If any changes please change in `protein/settings_handler` the class attribute`GlobalSettings.addresses` (or `Protein.settings.addresses`).
+The offset of a PDB chain in the coordinate resi relative to Uniprot is based on `SIFT` data. Mostly.
+
+In some cases there is both a missing N and C terminus (see [offset_issue.png](/offset_issue)), which means that there is no PDB_BEG or PDB_END.
+This is where the bound method of Structure `.get_offset_from_PDB(detail, sequence)` comes in. This is a fix to an already generated file.
+It requires the sequence of the chain in question.
+
+See also: [blog post](http://blog.matteoferla.com/2019/09/pdb-numbering-rollercoaster.html).
+
 
 ### Future ideas
 

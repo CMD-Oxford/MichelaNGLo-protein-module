@@ -5,9 +5,8 @@ The class ProteinAnalyser builds upon the ProteinLite core and expands it with
 from .core import ProteinCore
 from .mutation import Mutation
 import re
-from Bio.PDB import PDBParser
-from Bio.PDB.HSExposure import HSExposureCB
 import io, os
+from .analyse import StructureAnalyser
 
 class ProteinAnalyser(ProteinCore):
     def __init__(self,*args,**kwargs):
@@ -113,7 +112,9 @@ class ProteinAnalyser(ProteinCore):
         #self.analyse_structure()
 
     def check_mutation(self):
-        if len(self.sequence) > self.mutation.residue_index and self.sequence[self.mutation.residue_index - 1] == self.mutation.from_residue:
+        if len(self.sequence) > self.mutation.residue_index and \
+            self.sequence[self.mutation.residue_index - 1] == self.mutation.from_residue and \
+            self.mutation.to_residue in 'ACDEFGHIKLMNPQRSTVWY':
             return True
         else:
             return False  # call mutation_discrepancy to see why.
@@ -121,13 +122,14 @@ class ProteinAnalyser(ProteinCore):
     def mutation_discrepancy(self):
         # returns a string explaining the `check_mutation` discrepancy error
         neighbours = ''
+        print(self.mutation.residue_index, len(self.sequence), self.sequence[self.mutation.residue_index - 1], self.mutation.from_residue)
         if len(self.sequence) < self.mutation.residue_index:
-            return 'Uniprot {g} is {l} amino acids long, while user claimed a mutation at {i}.'.format(
+            return 'Uniprot {g} is only {l} amino acids long, while user claimed a mutation at {i}.'.format(
                 g=self.uniprot,
                 i=self.mutation.residue_index,
                 l=len(self.sequence)
             )
-        else:
+        elif self.sequence[self.mutation.residue_index - 1] != self.mutation.from_residue:
             neighbours = self._neighbours(midresidue=self.sequence[self.mutation.residue_index - 1],
                                           position=self.mutation.residue_index,
                                           marker='*')
@@ -138,6 +140,10 @@ class ProteinAnalyser(ProteinCore):
                 f=self.mutation.from_residue,
                 s=neighbours
             )
+        elif self.mutation.to_residue not in 'ACDEFGHIKLMNPQRSTVWY':
+            return 'Analysis can only deal with missenses right now.'
+        else:
+            raise ValueError(f'Unable to analyse {self.uniprot} for mysterious reasons (resi:{self.mutation.residue_index}, from:{self.mutation.from_residue}, to:{self.mutation.to_residue})')
 
     ################################# ELM
 
@@ -184,28 +190,27 @@ class ProteinAnalyser(ProteinCore):
     def get_features_at_position(self, position=None):
         """
         :param position: mutation, str or position
-        :return: list of gNOMAD mutations, which are dictionary e.g. {'id': 'gNOMAD_19_19_rs562294556', 'description': 'R19Q (rs562294556)', 'x': 19, 'y': 19, 'impact': 'MODERATE'}
+        :return: list of gnomAD mutations, which are dictionary e.g. {'id': 'gnomAD_19_19_rs562294556', 'description': 'R19Q (rs562294556)', 'x': 19, 'y': 19, 'impact': 'MODERATE'}
         """
         position = position if position is not None else self.mutation.residue_index
         return self.get_features_near_position(position, wobble=0)
 
     def get_features_near_position(self, position=None, wobble=10):
         position = position if position is not None else self.mutation.residue_index
-        valid = [{**f, 'type': g} for g in self.features for f in self.features[g] if f['x'] - wobble < position < f['y'] + wobble]
+        valid = [{**f, 'type': g} for g in self.features for f in self.features[g] if 'x' in f and f['x'] - wobble < position and  position < f['y'] + wobble]
         svalid = sorted(valid, key=lambda v: int(v['y']) - int(v['x']))
         return svalid
 
-    def get_gNOMAD_near_position(self, position=None, wobble=5):
+    def get_gnomAD_near_position(self, position=None, wobble=5):
         """
         :param position: mutation, str or position
         :param wobble: int, number of residues before and after.
-        :return: list of gNOMAD mutations, which are dictionary e.g. {'id': 'gNOMAD_19_19_rs562294556', 'description': 'R19Q (rs562294556)', 'x': 19, 'y': 19, 'impact': 'MODERATE'}
+        :return: list of gnomAD mutations, which are dictionary e.g. {'id': 'gnomAD_19_19_rs562294556', 'description': 'R19Q (rs562294556)', 'x': 19, 'y': 19, 'impact': 'MODERATE'}
         """
         position = position if position is not None else self.mutation.residue_index
-        valid = [g for g in self.gNOMAD if g.x - wobble < position < g.y + wobble]
+        valid = [g for g in self.gnomAD if g.x - wobble < position < g.y + wobble]
         svalid = sorted(valid, key=lambda v: v.y - v.x)
         return svalid
-
 
     def _get_structures_with_position(self, position):
         """
@@ -213,6 +218,7 @@ class ProteinAnalyser(ProteinCore):
         :param position: mutation, str or position
         :return: list of self.pdbs+self.swissmodel+self.pdb_matches...
         """
+        print('Use get_best_model')
         raise DeprecationWarning
         return [pdb for pdb in self.pdbs + self.swissmodel + self.pdb_matches if int(pdb['x']) < position < int(pdb['y'])]
 
@@ -241,96 +247,26 @@ class ProteinAnalyser(ProteinCore):
         else:
             return pdb
 
+    @property
+    def property_at_mutation(self):
+        return {k: self.properties[k][self.mutation.residue_index -1] for k in self.properties}
+
     #### THE FUTURE
 
     def analyse_structure(self):
         structure = self.get_best_model()
+        #structure id a michelanglo_protein.core.Structure object
         if not structure:
+            self.structural = None
             return self
-        self.structure = StructureAnalyser(structure, self.mutation)
+        self.structural = StructureAnalyser(structure, self.mutation)
+        #self.structural_gnomAD_neighbours = [ for n in self.structural.neighbours]
+        return self
 
 
     # conservation score
     # disorder
 
-class StructureAnalyser:
-    """
 
-    """
-    def __init__(self, structure, mutation):
-        """
-
-        :param structure: a instance of Structure, a former namedtuple and is in core.py
-        :param mutation: a instance of mutation.
-        """
-        self.mutation = mutation
-        self.position = mutation.residue_index
-        self.structure = PDBParser().get_structure('model', io.StringIO(structure.get_coordinates()))
-        self.chain = structure.chain
-        self.code = structure.code
-        self.target_residue = self.structure[0][self.chain][self.position]
-        self._target_hse = None
-
-    @property
-    def target_hse(self):
-        if not self._target_hse:
-            hse = HSExposureCB(self.structure)
-            self._target_hse = hse[(self.structure[0][self.chain].get_id(), self.target_residue.id)]
-        return self._target_hse
-
-
-    def is_full_surface(self):
-        """
-        Uses half solvent exposure within PDB module.
-        """
-        return self.target_hse[0] < 1
-
-    def is_core(self):
-        """
-        Uses half solvent exposure within PDB module.
-        """
-        return self.target_hse[0] > 15
-
-    def is_partial_surface(self):
-        """
-        Uses half solvent exposure within PDB module.
-        """
-        return 0 < self.target_hse[0] < 15
-
-    def get_superficiality(self):
-        if self.target_hse[0] == 0:
-            return 'surface'
-        elif self.target_hse[0] < 15:
-            return 'partially buried'
-        else:
-            return 'buried'
-
-    def get_structure_neighbours(self, threshhold:float=3):
-        """
-
-        :param threshhold: &Aring;ngstrom distance.
-        :return:
-        """
-        # the longest amino acid is 10&Aring; long.
-        neighbours = set()
-        overthreshhold = 10+threshhold #no atom in a arginine will be within threshhold of a given atom if any atom is greater than this.
-        double_overthreshhold = 20 + threshhold #no atom in a arginine will be within threshhold of a any atom in a given residue if any atom is greater than this.
-        doublebreak = False
-        for residue in self.structure[0][self.chain]:
-            for atom in residue:
-                if doublebreak==True:
-                    doublebreak = False
-                    break
-                for ref_atoms in self.target_residue:
-                    if atom - ref_atoms > double_overthreshhold:
-                        doublebreak=True # no point in checking the distances to the whole residue
-                        break
-                    elif atom - ref_atoms > overthreshhold:
-                        break # no point in checking the distances to this atom
-                    elif atom - ref_atoms < 4:
-                        if residue.id[0] == 'W':
-                            break #water
-                        neighbours.add(residue.id[1])
-        return neighbours
 
 

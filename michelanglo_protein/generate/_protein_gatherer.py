@@ -223,7 +223,7 @@ class ProteinGatherer(ProteinCore, _BaseMixin, _DisusedMixin, _UniprotMixin):
             self.log('parsing HURI...')
             for row in self.settings.open('huri'):
                 # Unique identifier for interactor A	Unique identifier for interactor B	Alternative identifier for interactor A	Alternative identifier for interactor B	Aliases for A	Aliases for B	Interaction detection methods	First author	Identifier of the publication	NCBI Taxonomy identifier for interactor A	NCBI Taxonomy identifier for interactor B	Interaction types	Source databases	Interaction identifier(s)	Confidence score	Complex expansion	Biological role A	Biological role B	Experimental role A	Experimental role B	Interactor type A	Interactor type B	Xref for interactor A	Xref for interactor B	Xref for the interaction	Annotations for interactor A	Annotations for interactor B	Annotations for the interaction	NCBI Taxonomy identifier for the host organism	Parameters of the interaction	Creation date	Update date	Checksum for interactor A	Checksum for interactor B	Checksum for interaction	negative	Feature(s) for interactor A	Feature(s) for interactor B	Stoichiometry for interactor A	Stoichiometry for interactor B	Participant identification method for interactor A	Participant identification method for interactor B
-                # -	uniprotkb:Q6P1W5-2	ensembl:ENST00000507897.5|ensembl:ENSP00000426769.1|ensembl:ENSG00000213204.8	ensembl:ENST00000373374.7|ensembl:ENSP00000362472.3|ensembl:ENSG00000142698.14	human orfeome collection:2362(author assigned name)	human orfeome collection:5315(author assigned name)	"psi-mi:""MI:1112""(two hybrid prey pooling approach)"	Yu et al.(2011)	pubmed:21516116	taxid:9606(Homo Sapiens)	taxid:9606(Homo Sapiens)	"psi-mi:""MI:0407""(direct interaction)"	-	-	-	-	-	-	"psi-mi:""MI:0496""(bait)"	"psi-mi:""MI:0498""(prey)"	"psi-mi:""MI:0326""(protein)"	"psi-mi:""MI:0326""(protein)"	-	-	-	"comment:""vector name: pDEST-DB""|comment:""centromeric vector""|comment:""yeast strain: Y8930"""	"comment:""vector name: pDEST-AD""|comment:""centromeric vector""|comment:""yeast strain: Y8800"""	"comment:""Found in screens 1."""	taxid:4932(Saccharomyces cerevisiae)	-	6/30/2017	-	-	-	-	-	DB domain (n-terminal): gal4 dna binding domain:n-n	AD domain (n-terminal): gal4 activation domain:n-n	-	-	"psi-mi:""MI1180""(partial DNA sequence identification)"	"psi-mi:""MI1180""(partial DNA sequence identification)"
+                # -	uniprotkb:Q6P1W5-2	ensembl:ENST00000507897.5|ensembl:ENSP00000426769.1|ensembl:ENSG00000213204.8	ensembl:ENST00000373374.7|ensembl:ENSP00000362472.3|ensembl:ENSG00000142698.14	human orfeome collection:2362(author assigned name)	human orfeome collection:5315(author assigned name)	"psi-mi:""MI:1112""(two hybrid prey pooling approach)"	Yu et al.(2011)	pubmed:21516116	taxid:9606(Homo Sapiens)	taxid:9606(Homo Sapiens)	"psi-mi:""MI:0407""(direct interaction)"	-	-	-	-	-	-	"psi-mi:""MI:0496""(bait)"	"psi-mi:""MI:0498""(prey)"	"psi-mi:""MI:0326""(protein)"	"psi-mi:""MI:0326""(michelanglo_protein)"	-	-	-	"comment:""vector name: pDEST-DB""|comment:""centromeric vector""|comment:""yeast strain: Y8930"""	"comment:""vector name: pDEST-AD""|comment:""centromeric vector""|comment:""yeast strain: Y8800"""	"comment:""Found in screens 1."""	taxid:4932(Saccharomyces cerevisiae)	-	6/30/2017	-	-	-	-	-	DB domain (n-terminal): gal4 dna binding domain:n-n	AD domain (n-terminal): gal4 activation domain:n-n	-	-	"psi-mi:""MI1180""(partial DNA sequence identification)"	"psi-mi:""MI1180""(partial DNA sequence identification)"
                 if ':' + self.gene_name + '(' in row:  #
                     protein_set = re.findall('\:(\w+)\(gene name\)', row)
                     if len(protein_set) == 2:
@@ -365,7 +365,7 @@ class ProteinGatherer(ProteinCore, _BaseMixin, _DisusedMixin, _UniprotMixin):
                             entry['elm_identifier']))
 
     def fetch_ENSP(self):
-        """EMBL ids should vome from the Unirpto entry. However, in some cases too many it is absent."""
+        """EMBL ids should have come from the Unirpto entry. However, in some cases (too many) it is absent."""
         for row in self.settings.open('ensembl'):
             if self.gene_name in row:
                 if row.count(' ') > 5:
@@ -421,24 +421,32 @@ class ProteinGatherer(ProteinCore, _BaseMixin, _DisusedMixin, _UniprotMixin):
         return self
 
     @_failsafe
-    def parse_gNOMAD(self):
-        # preparsed.
-        # from protein.generate.split_gNOMAD import gNOMAD
-        # gNOMAD().write('gNOMAD')
-        file = os.path.join(self.settings.temp_folder, 'gNOMAD', self.uniprot +'.json')
+    def parse_gnomAD(self):
+        """
+        preparsed. using from michelanglo_protein.generate.split_gnomAD import gnomAD
+        which splits the huge gnomAD into lots
+        :return:
+        """
+        #
+        #
+        # gnomAD().write('gnomAD')
+        file = os.path.join(self.settings.temp_folder, 'gnomAD', self.uniprot +'.json')
         if os.path.exists(file):
             for snp in json.load(open(file)):
-                resi = int(snp['residue_index'].split('-')[0])
-                variant = Variant(id=f'gNOMAD_{resi}_{resi}_{snp["id"]}',
+                resi = snp['residue_index']
+                if isinstance(resi, str):
+                    resi = int(resi.split('-')[0])
+                #print('HERE', snp)
+                variant = Variant(id=f'gnomAD_{resi}_{resi}_{snp["id"]}',
                                 description='{from_residue}{residue_index}{to_residue} ({id})'.format(**snp),
                                 x=resi, y=resi,
                                 impact=snp['impact'],
                                 homozygous=snp['homozygous'])
-                self.gNOMAD.append(variant)
+                self.gnomAD.append(variant)
         else:
-            self.gNOMAD = []
-            warn('No gNOMAD data from {0} {1}? Have your run protein.generate.split_gNOMAD?'.format(self.gene_name, self.uniprot))
-        self.log('gNOMAD mutations: {0}'.format(len(self.gNOMAD)))
+            self.gnomAD = []
+            warn('No gnomAD data from {0} {1}? Have your run michelanglo_protein.generate.split_gnomAD?'.format(self.gene_name, self.uniprot))
+        self.log('gnomAD mutations: {0}'.format(len(self.gnomAD)))
         return self
 
     def iter_allele(self, filter=True, consequence=None, split=True):
@@ -489,14 +497,15 @@ class ProteinGatherer(ProteinCore, _BaseMixin, _DisusedMixin, _UniprotMixin):
             warn('There is no uniprot value in this entry!')
             self.uniprot = json.load(open(os.path.join(self.settings.data_folder,'human_prot_namedex.json')))[self.gene_name]
         if not self.gene_name:
-            self.parse_uniprot()
+            self.parse_uniprot()  #this runs off the web.
         ### fetch!
-        tasks = { #'Uniprot': self.parse_uniprot, #already done.
-                 #'PFam': self.parse_pfam, #done.
+        tasks = {
                  'Swissmodel': self.parse_swissmodel,
                  'pLI': self.parse_pLI,
-                 'gNOMAD': self.parse_gNOMAD,
-                 'parse_pdb_blast': self.parse_pdb_blast
+                 'param': self.compute_params,
+                 'gnomAD': self.parse_gnomAD,
+                 'ptm': self.get_PTM
+                 #'parse_pdb_blast': self.parse_pdb_blast
                  #'manual': self.add_manual_data,
                  #'Binding partners': self.fetch_binders
                 }
@@ -517,7 +526,7 @@ class ProteinGatherer(ProteinCore, _BaseMixin, _DisusedMixin, _UniprotMixin):
             else:
                 self._threads = threads
                 return self
-        else:
+        else:  #serial
             for task_fn in tasks.values():
                 task_fn()
         return self
@@ -536,17 +545,29 @@ class ProteinGatherer(ProteinCore, _BaseMixin, _DisusedMixin, _UniprotMixin):
         return self
 
     def parse_swissmodel(self):
+        """
+        Fills the object with ``.swissmodel`` data for key species.
+
+        :return:
+        """
         # entry: {"uniprot_seq_length": 246, "provider": "PDB", "seqid": "", "from": 3, "uniprot_ac": "P31946",
         # "uniprot_seq_md5": "c82f2efd57f939ee3c4e571708dd31a8", "url": "https://swissmodel.expasy.org/repository/uniprot/P31946.pdb?from=3&to=232&template=6byk&provider=pdb",
         # "to": 232, "template": "6byk", "iso_id": "P31946-1", "coordinate_id": "5be4a9c602efd0e456a7ffeb"}
-        models=json.load(self.settings.open('swissmodel'))['index']
+        ## figure what animal it is. fix missing.
+        if self.organism['NCBI Taxonomy'] == 'NA':
+            self.organism['NCBI Taxonomy'] = self.get_species_for_uniprot()
+        ## Now. figure what animal it is.
+        if self.organism['NCBI Taxonomy'] in (9606, 3702, 6239, 7227, 10090, 36329, 83332, 83333, 93061, 190650, 208964, 284812, 559292):
+            reffile = 'swissmodel'+self.organism['NCBI Taxonomy']
+        else:
+            return self
+        models=json.load(self.settings.open(reffile))['index']
         for model in models:
             if self.uniprot == model['uniprot_ac']:
                 if model['provider'] == 'PDB':
                     continue
                 if not model['seqid']:
                     warn('Odd entry')
-                    print(model)
                     model['seqid'] = 0
                 self.swissmodel.append(
                                         Structure(description='{template} (identity:{seqid:.0f}%)'.format(**model),
@@ -665,21 +686,19 @@ class ProteinGatherer(ProteinCore, _BaseMixin, _DisusedMixin, _UniprotMixin):
         else:
             return None
 
-    #@_failsafe
-    def get_PMT(self):
-        ## rearrange PTM in a file per gene.
+    @_failsafe
+    def get_PTM(self):
+        """
+        To run this requires ``Phosphosite().split().write()`` to have been run at some point...
+        :return:
+        """
         assert self.uniprot, 'Uniprot Acc. required. Kind of.'
-        modified_residues = []
-        for f in os.listdir(self.settings.reference_folder):
-            if '_site_dataset' in f and '.gz' not in f:  # it's a Phosphosite plus entry.
-                with open(os.path.join(self.settings.reference_folder, f)) as fh:
-                    next(fh)  # date
-                    next(fh)  # licence
-                    next(fh)  # blankline
-                    for row in csv.DictReader(fh, delimiter='\t'):
-                        if row['ACC_ID'] == self.uniprot: ## this will not pick up mice!
-                            modified_residues.append(row["MOD_RSD"])
-        self.features['PSP_modified_residues'] = modified_residues ## list of str (e.g. 'K30-m2')
+        self.log(f'Getting PTM for {self.uniprot}')
+        fp = os.path.join(self.settings.temp_folder,'phosphosite',self.uniprot+'.json')
+        if os.path.exists(fp):
+            with open(fp) as fh:
+                self.features['PSP_modified_residues'] = json.load(fh)
+        return self
 
     @_failsafe
     def _test_failsafe(self):

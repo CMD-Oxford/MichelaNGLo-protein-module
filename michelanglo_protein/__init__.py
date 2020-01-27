@@ -14,13 +14,13 @@ The Mutation class is mostly used by ProteinAnalysis but itself holds wordy *_ef
 
 The script unitests.py does... unitests.
 
-The script protein.aprior_effect generates the dictionary that is used to say what the apriori effect are. Namely, what amino acid is smaller etc.
-This is already added to protein, so does not need to be redone.
->>> from protein.apriori_effect import Changedex
+The script michelanglo_protein.aprior_effect generates the dictionary that is used to say what the apriori effect are. Namely, what amino acid is smaller etc.
+This is already added to michelanglo_protein, so does not need to be redone.
+>>> from michelanglo_protein.apriori_effect import Changedex
 >>> pprint(Changedex().fill().to_dict())
 
 To start everything going...
->>> from protein.generate.ProteomeGatherer
+>>> from michelanglo_protein.generate.ProteomeGatherer
 >>> ProteomeGatherer()
 and wait for the missing file. There surely is one. generate.__init__ has a list of references.
 """

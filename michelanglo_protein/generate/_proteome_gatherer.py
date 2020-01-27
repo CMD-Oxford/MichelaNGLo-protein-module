@@ -1,7 +1,7 @@
 __doc__ = """
 Generates the data to be used.
 
-However, it repeats itself. The messier uniprot_to_json is basically its successor...
+However, it repeated itself. Hence the switch to uniprot_master_parser.UniprotMasterReader.
 """
 
 from pprint import PrettyPrinter
@@ -10,8 +10,10 @@ pprint = PrettyPrinter().pprint
 import os, json
 from warnings import warn
 from ._protein_gatherer import ProteinGatherer
-from ._proteome_gatherer2 import UniprotReader
+from .uniprot_master_parser import UniprotMasterReader
+from .split_gnomAD import gnomAD
 from .PDB_blast import Blaster
+from ..settings_handler import global_settings #the instance not the class.
 import random
 
 
@@ -20,7 +22,7 @@ def announce(*msgs):
     print(*msgs)
     print('*' * 50)
 
-class ProteomeGatherer:
+class ProteomeGathererOLD:
     """
     Gets everything ready and parses!
     >>> ProteomeGatherer(skip=True)
@@ -32,8 +34,9 @@ class ProteomeGatherer:
         Calls the variaous parts that get things ready.
         :param skip: boolean, if true it runs parse_proteome
         """
+        warn('This script is depractated in favour of uniprot_master_parser.UniprotMasterReader', category=DeprecationWarning)
         ################ FETCH ALL RAW FILES #################################################
-        ProteinGatherer.prosettings.verbose = True
+        ProteinGatherer.settings.verbose = True
         announce('Retrieving references')
         if not skip:
             ProteinGatherer.settings.retrieve_references(ask=False)
@@ -41,18 +44,19 @@ class ProteomeGatherer:
         ################ PARSE UNIPROT #######################################################
         self.master_file = os.path.join(ProteinGatherer.settings.temp_folder, 'uniprot_sprot.xml')
         # This class parses the uniprot FTP file and can do various things. such as making a small one that is only human.
-        # But mainly the `UniprotReader.convert('uniprot_sprot.xml')` method whcih generates the JSON files required.
+        # But mainly the `UniprotMasterReader.convert('uniprot_sprot.xml')` method whcih generates the JSON files required.
         # first_n_protein is for testing.
         announce('Convert Master Uniprot file')
         if not skip:
-            UniprotReader.convert(uniprot_master_file = self.master_file, first_n_protein=0)
+            #UniprotMasterReader.convert(uniprot_master_file = self.master_file, first_n_protein=0)
+            UniprotMasterReader()
 
         ################ BLAST PDB #######################################################
         # uncompresses the pdbaa
         announce('Extracting blast db')
         if not skip:
             Blaster.extract_db()
-        # blasts the human.fa agains the newly extracted pdbaa
+        # blasts the human.fa against the newly extracted pdbaa
         announce('Blasting')
         if not skip:
             Blaster.pdb_blaster()
@@ -82,3 +86,35 @@ class ProteomeGatherer:
                 #prot.parse_ExAC_type()
                 prot.gdump()
 
+class ProteomeGatherer:
+    settings = global_settings
+
+    def __init__(self):
+        ################ FETCH ALL RAW FILES #################################################
+        self.settings.verbose = True
+        announce('Retrieving references')
+        self.settings.verbose = True  # False
+        self.settings.startup(data_folder='../MichelaNGLo-protein-data')
+        self.settings.startup(data_folder='../MichelaNGLo-data')
+        self.settings.retrieve_references(ask=False, refresh=False)
+        self.settings.error_tolerant = True
+        announce('Parsing Uniprot')
+        UniprotMasterReader()
+        announce('Splitting gnomAD files')
+        gnomAD(genomasterfile=os.path.join(self.settings.reference_folder,
+                                           'gnomAD.genomes.r2.1.1.exome_calling_intervals.sites.vcf.bgz'),
+               exomasterfile=os.path.join(self.settings.reference_folder, 'gnomAD.exomes.r2.1.1.sites.vcf.bgz'),
+               namedexfile=os.path.join(self.settings.dictionary_folder, 'taxid9606-names2uniprot.json'),
+               folder=os.path.join(self.settings.temp_folder, 'gnomAD')
+               ).split()
+        announce('Adding gnomAD files')
+        path = os.path.join(global_settings.pickle_folder, f'taxid9606')
+        for pf in os.listdir(path):
+            try:
+                protein = ProteinGatherer().load(file=os.path.join(path, pf))
+                protein.gnomAD = []
+                protein.parse_gnomAD()
+                protein.get_PTM()
+                protein.dump()
+            except:
+                pass
