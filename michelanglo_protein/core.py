@@ -1,19 +1,18 @@
-import pickle, os, re, json
+import pickle, os, re, json, requests
 from datetime import datetime
-from .settings_handler import global_settings #the instance not the class.
+from .settings_handler import global_settings  # the instance not the class.
 from collections import namedtuple
 import gzip
 from .structure import Structure
+from .gnomad_variant import Variant
 
 from warnings import warn
-from typing import Dict
+from typing import *
+from .swissmodel_retrieval import FromSwissmodel
+from .alphafold2_retrieval import FromAlphaFold2
 
-Variant = namedtuple('Variant', ['id', 'x', 'y', 'impact', 'description', 'homozygous'], defaults=(None, None, None, None, None, None))
-Variant.__doc__="""
-Stores the gnomAD data for easy use by FeatureViewer and co. Can be converted to Mutation.
-"""
 
-class ProteinCore:
+class ProteinCore(FromSwissmodel, FromAlphaFold2):
     """
     This is a lightweight version of Protein that is intended to run off pre parsed pickles.
     It forms the base of Protein. This does zero protein analyses.
@@ -56,62 +55,71 @@ class ProteinCore:
     xml <NewElement '{http://uniprot.org/uniprot}entry' at 0x7f654b69f4e0>
     """
     settings = global_settings
-    version = 1.0 #this is for pickled file migration/maintenance.
+    version = 1.0  # this is for pickled file migration/maintenance.
 
-    def __init__(self, gene_name='', uniprot = '', uniprot_name = '', sequence='', organism = None, taxid=None, **other):
-        ### predeclaration (and cheatsheet)
-        if organism: # dictionary with keys common scientific and NCBI Taxonomy
+    def __init__(self,
+                 gene_name='',
+                 uniprot='',
+                 uniprot_name='',
+                 sequence='',
+                 organism=None,
+                 taxid: int = None,
+                 **other):
+        ## predeclaration (and cheatsheet)
+        if organism:  # dictionary with keys common scientific and NCBI Taxonomy
             self.organism = organism
         else:
-            self.organism = {'common': 'NA', 'scientific': 'NA', 'NCBI Taxonomy': 'NA', 'other': 'NA'} ##obs? ignore for human purposes.
+            self.organism = {'common': 'NA', 'scientific': 'NA', 'NCBI Taxonomy': 'NA',
+                             'other': 'NA'}  # obs? ignore for human purposes.
         if taxid:
-            self.organism['NCBI Taxonomy'] = taxid
+            self.organism['NCBI Taxonomy'] = int(taxid)
         self.gene_name = gene_name
-        self.uniprot_name = uniprot_name.strip() ## S39AD_HUMAN
-        #### uniprot derivved
-        self.uniprot = uniprot.strip() ## uniprot accession
-        self.uniprot_dataset = '' ## Swiss-Prot good, TrEMBL bad.
+        self.uniprot_name = uniprot_name.strip()  # S39AD_HUMAN
+        ## uniprot derivved
+        self.uniprot = uniprot.strip()  # uniprot accession
+        self.uniprot_dataset = ''  # Swiss-Prot good, TrEMBL bad.
         self.alt_gene_name_list = []
-        self.accession_list = [] ## Q96H72 etc.
-        self.sequence = sequence  ###called seq in early version causing eror.rs
-        self.recommended_name = '' #Zinc transporter ZIP13
+        self.accession_list = []  # Q96H72 etc.
+        self.sequence = sequence  ##called seq in early version causing eror.rs
+        self.recommended_name = ''  # Zinc transporter ZIP13
         self.alternative_fullname_list = []
         self.alternative_shortname_list = []
-        self.properties={}
-        self.features={}  #see _parse_protein_feature. Dictionary of key: type of feature, value = list of dict with the FeatureViewer format (x,y, id, description)
-        self.partners ={'interactant': [],  #from uniprot
-                        'BioGRID': [],  #from biogrid downlaoad
-                        'SSL': [],  #Slorth data
-                        'HuRI': [],
-                        'stringDB highest': [],  # score >900
-                        'stringDB high': [],  #900 > score > 700
-                        'stringDB medium': [], #400 > score > 400
-                        'stringDB low': [] #score < 400
-                        } # lists not sets as it gave a pickle issue.
-        self.diseases=[] # 'description', 'name', 'id', 'MIM'
+        self.properties = {}
+        self.features = {}  # see _parse_protein_feature. Dictionary of key: type of feature, value = list of dict with the FeatureViewer format (x,y, id, description)
+        self.partners = {'interactant': [],  # from uniprot
+                         'BioGRID': [],  # from biogrid downlaoad
+                         'SSL': [],  # Slorth data
+                         'HuRI': [],
+                         'stringDB highest': [],  # score >900
+                         'stringDB high': [],  # 900 > score > 700
+                         'stringDB medium': [],  # 400 > score > 400
+                         'stringDB low': []  # score < 400
+                         }  # lists not sets as it gave a pickle issue.
+        self.diseases = []  # 'description', 'name', 'id', 'MIM'
         self.pdbs = []  # {'description': elem.attrib['id'], 'id': elem.attrib['id'], 'x': loca[0], 'y': loca[1]}
         self.ENSP = ''
         self.ENST = ''
         self.ENSG = ''
-        ### ExAC
-        self.gnomAD = [] #formerlly alleles
-        #self.ExAC_type (property= 'Unparsed' # Dominant | Recessive | None | Unknown (=???)
+        ## ExAC
+        self.gnomAD = []  # formerlly alleles
+        # self.ExAC_type (property= 'Unparsed' # Dominant | Recessive | None | Unknown (=???)
         self.pLI = -1
         self.pRec = -1
         self.pNull = -1
-        ### pdb
-        self.pdb_matches =[] #{'match': align.title[0:50], 'match_score': hsp.score, 'match_start': hsp.query_start, 'match_length': hsp.align_length, 'match_identity': hsp.identities / hsp.align_length}
-        self.swissmodel = [] #parse_swissmodel() fills it.
+        ## pdb
+        self.pdb_matches = []  # {'match': align.title[0:50], 'match_score': hsp.score, 'match_start': hsp.query_start, 'match_length': hsp.align_length, 'match_identity': hsp.identities / hsp.align_length}
+        self.swissmodel = []  # parse_swissmodel() fills it.
+        self.alphafold2 = [] # parse_alphafold2() fills it. Assumes there may be more than one model in future.
         self.percent_modelled = -1
-        ### junk
-        self.other = other ### this is a garbage bin. But a handy one.
-        self.logbook = [] # debug purposes only. See self.log()
+        ## junk
+        self.other = other  ## this is a garbage bin. But a handy one.
+        self.logbook = []  # debug purposes only. See self.log()
         self._threads = {}
         self.timestamp = datetime.now()
-        #not needed for ProteinLite
+        # not needed for ProteinLite
         self.xml = None
 
-    ############################## property objects
+    ############### property objects
 
     @property
     def ExAC_type(self):
@@ -126,7 +134,7 @@ class ProteinCore:
         else:
             return 'Unknown'
 
-    ############################# IO #############################
+    ############### IO ###############
     def _get_species_folder(self):
         if self.organism['NCBI Taxonomy'] == 'NA':
             self.log(f'NA Species??! {self.organism} for {self.uniprot_name}')
@@ -137,7 +145,6 @@ class ProteinCore:
         if not os.path.exists(path):
             os.mkdir(path)
         return path
-
 
     def exists(self, file=None):
         """
@@ -159,6 +166,7 @@ class ProteinCore:
         return False
 
     def dump(self, file=None):
+        self.assert_safe()
         if not file:
             path = self._get_species_folder()
             file = os.path.join(path, '{0}.p'.format(self.uniprot))
@@ -167,56 +175,65 @@ class ProteinCore:
         self.log('Data saved to {} as pickled dictionary'.format(file))
 
     def gdump(self, file=None):
+        self.assert_safe()
         if not file:
             path = self._get_species_folder()
-            file = os.path.join(path,  f'{self.uniprot}.pgz')
+            file = os.path.join(path, f'{self.uniprot}.pgz')
         self.complete()  # wait complete.
         with gzip.GzipFile(file, 'w') as f:
             pickle.dump(self.__dict__, f)
         self.log('Data saved to {} as gzipped pickled dictionary'.format(file))
 
     def get_species_for_uniprot(self):
-        warn('You have triggered a fallback. If you know your filepath to load use it.')
+        warn('You have triggered a fallback. If you know your filepath (taxid) to load use it.')
         uniprot2species = json.load(open(os.path.join(self.settings.dictionary_folder, 'uniprot2species.json')))
         if self.uniprot in uniprot2species.keys():
-            return uniprot2species[self.uniprot]
+            self.organism['NCBI Taxonomy'] = uniprot2species[self.uniprot]
+            return self.organism['NCBI Taxonomy']
         else:
             raise ValueError('Cannot figure out species of uniprot to load it. Best bet is to fetch it.')
 
-    #decorator /fake @classmethod
+    def assert_safe(self):
+        if re.match(r'[^\w.]', self.uniprot):
+            raise ValueError('forbidden character used in Uniprot ID')
+
+    # decorator /fake @classmethod
     def _ready_load(fun):
         """
         Prepare loading for both load and gload.
         Formerly allowed it to run as a class method, code not fixed.
         :return:
         """
+
         def loader(self, file=None):
+            self.assert_safe()
             if not file:
                 path = self._get_species_folder()
                 if fun.__name__ == 'load':
                     extension = '.p'
                 else:
                     extension = '.pgz'
-                file = os.path.join(path, self.uniprot+extension)
+                file = os.path.join(path, self.uniprot + extension)
             fun(self, file)
             return self
+
         return loader
 
     @_ready_load
     def load(self, file):
-        self.__dict__ = pickle.load(open(file, 'rb'))
+        self.__dict__ = {**self.__dict__, **pickle.load(open(file, 'rb'))}
         self.log('Data from the pickled dictionary {}'.format(file))
         return self
 
     @_ready_load
     def gload(self, file):
         with gzip.GzipFile(file, 'r') as f:
-            self.__dict__ = pickle.load(f)
+            self.__dict__ = {**self.__dict__, **pickle.load(f)}
         self.log('Data from the gzipped pickled dictionary {}'.format(file))
         return self
 
-    ####################### Misc Magic methods ##################
-    def __len__(self):  ## sequence lenght
+    ############ Misc Magic methods #########
+    def __len__(self):  # sequence lenght
         return len(self.sequence)
 
     def log(self, text):
@@ -251,7 +268,7 @@ class ProteinCore:
         def deobjectify(x):
             if isinstance(x, dict):
                 d = {k: deobjectify(x[k]) for k in x}
-                return {k: v for k,v in d.items() if v is None}
+                return {k: v for k, v in d.items() if v is None}
             elif isinstance(x, list) or isinstance(x, set):
                 l = [deobjectify(v) for v in x]
                 return [ll for ll in l if ll is None]
@@ -259,14 +276,16 @@ class ProteinCore:
                 return x
             elif isinstance(x, str) or isinstance(x, bool) or x is None:  # really ought to deal with falseys.
                 return str(x)
-            elif type(x).__name__  == 'method':
+            elif type(x).__name__ == 'method':
                 return None
             elif x.__class__.__module__ in ('michelanglo_protein.protein_analysis',
                                             'michelanglo_protein.structure',
                                             'michelanglo_protein.core',
                                             'michelanglo_protein.analyse.Pymol_StructureAnalyser'):
                 # ('builtin', 'builtins','datetime', michelanglo_protein.settings_handler, michelanglo_protein.generate.ET_monkeypatch):
-                return {a: deobjectify(getattr(x, a, '')) for a in x.__dir__() if a[0] != '_' and type(getattr(x, a, '')).__name__ != 'method'}
+                return {a: deobjectify(getattr(x, a, '')) for a in x.__dir__() if
+                        a[0] != '_' and type(getattr(x, a, '')).__name__ != 'method'}
             else:
                 return str(x)
+
         return deobjectify(self)

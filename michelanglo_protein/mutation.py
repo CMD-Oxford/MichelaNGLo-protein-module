@@ -45,7 +45,7 @@ class Mutation:
                 'C>P': 'from a non-aromatic to an aromatic|smaller|more flexible',
                 'C>Q': 'bigger',
                 'C>R': 'differently charged|bigger',
-                'C>S': 'bigger|smaller|equally sized|more flexible',
+                'C>S': 'equally sized|more flexible',
                 'C>T': 'bigger',
                 'C>V': 'bigger|more hydrophobic',
                 'C>W': 'bigger|from a non-aromatic to an aromatic|more hydrophobic',
@@ -311,7 +311,7 @@ class Mutation:
                 'R>W': 'differently charged|from a non-aromatic to an aromatic|differently shaped',
                 'R>Y': 'differently charged|from a non-aromatic to an aromatic|differently shaped',
                 'S>A': 'smaller|more rigid|more hydrophobic',
-                'S>C': 'bigger|smaller|equally sized|more rigid',
+                'S>C': 'equally sized|more rigid',
                 'S>D': 'differently charged|bigger|more rigid',
                 'S>E': 'differently charged|bigger|more rigid',
                 'S>F': 'bigger|more rigid|more hydrophobic',
@@ -455,12 +455,12 @@ class Mutation:
             self.parse_mutation(mutation)
 
     def __str__(self):
-        # note taht this is not file-safe
+        # note that this is not file-safe
         return self.from_residue+str(self.residue_index)+self.to_residue
 
     #raise NotImplementedError('Under upgrade')
     def parse_mutation(self, mutation):
-        ##### clean
+        ### clean
         assert mutation.find('.c') == -1, 'Chromosome mutation not accepted. Use Protein.'
         # remove the p.
         mutation = mutation.replace('p.', '').replace('P.', '')
@@ -468,7 +468,7 @@ class Mutation:
             if mutation.find(triple) != -1 or mutation.find(triple.lower()) != -1 or mutation.find(triple.upper()):
                 mutation = mutation.replace(triple, single).replace(triple.upper(), single).replace(triple.lower(), single)
         self.mutation = mutation
-        ###### split
+        ### split
         if self.mutation.find('fs') != -1 or self.mutation.find('*') != -1:
             rex = re.match('(\w)(\d+)', self.mutation)
             if rex:
@@ -508,7 +508,7 @@ class Mutation:
             else:
                 raise ValueError(self.mutation + ' is an odd_mutation')
 
-        ### classify apriori effect
+        ## classify apriori effect
         """
         {'S': 'smaller',
          'B': 'bigger',
@@ -586,5 +586,12 @@ class Mutation:
         :return: str
         """
         return ['{n} ({s}, {t})'.format(n=n,s=s,t=t) for s, t, n in cls.names if s == letter][0]
+
+    @classmethod
+    def aa3to1(cls, value):
+        v = value.strip().title()
+        for one, three, full in cls.names:
+            if three == v:
+                return one
 
 
