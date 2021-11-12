@@ -339,7 +339,7 @@ class ProteinAnalyser(ProteinCore):
                 if model.includes(self.mutation.residue_index):
                     good.append(model)
             if good:
-                good.sort(key=lambda x: x.resolution if x.resolution > 0 else x.resolution + 10)
+                good.sort(key=lambda x: x.resolution if (isinstance(x.resolution, (int, float)) and x.resolution > 0) else x.resolution + 10)
                 return good[0]
         # ========== Swissmodels ==========
         if allow_swiss:
@@ -437,27 +437,40 @@ class ProteinAnalyser(ProteinCore):
     def annotate_neighbours(self):
         """
         The structural neighbours does not contain data re features.
+        ``detail`` is a string. it is being outphased on the frontend. In favour of
+        {other_chain: bool, gnomad: List[str]}
+
         :return:
         """
         for neigh in self.structural.neighbours:
             neigh['resn'] = Mutation.aa3to1(neigh['resn'])
-            if neigh['chain'] != 'A':
-                neigh['detail'] = 'interface'
+            neigh['ptms'] = []
+            neigh['gnomads'] = {}
+            neigh['other_chain'] = False
+            if neigh['chain'] != 'A': # no details for other chain.
+                neigh['detail'] = 'other chain'  # interface!
+                neigh['other_chain'] = True
             else:
                 specials = []
-                r = int(neigh['resi'])
-                gnomad = ['gnomAD:' + g.description for g in self.gnomAD if r == g.x]
-                specials.extend(gnomad)
+                r = int(neigh['resi']) # will crash at insertion sequence... better show nothing than something odd?
+                ## ----- gnomads
+                gnomads = [g.description for g in self.gnomAD if r == g.x]
+                specials.extend(['gnomAD:' + g for g in gnomads])
+                neigh['gnomads'] = {g.split()[0]: {'full': g} for g in gnomads}
+                ## ----- uniprot ptms
                 for k in ('initiator methionine',
                           'modified residue',
                           'glycosylation site',
                           'non-standard amino acid'):
                     if k in self.features:
-                        specials.extend(['PTM:' + m['description'] for m in self.features[k] if r == m['x']])
+                        neigh['ptms'] = [m['description'] for m in self.features[k] if r == m['x']]
+                ## ----- PSP ptms
                 if 'PSP_modified_residues' in self.features:
-                    specials.extend(
-                        ['PTM:' + self.ptm_definitions[m['ptm']] for m in self.features['PSP_modified_residues'] if
-                         r == m['residue_index']])
+                    neigh['ptms'].extend([
+                                        self.ptm_definitions[m['ptm']] for m in self.features['PSP_modified_residues']
+                                        if r == m['residue_index']
+                                       ])
+                specials.extend(['PTM:' + m for m in neigh['ptms']])
                 neigh['detail'] = ' / '.join(set(specials))
 
     ################### Mutator class calling.
@@ -530,14 +543,17 @@ class ProteinAnalyser(ProteinCore):
                 pass
         return parent_conn.recv()
 
-    def analyse_FF(self, spit_process=True, **mutator_options) -> Union[Dict, None]:
+    def analyse_FF(self, spit_process=True, scaling_factor = 1, **mutator_options) -> Union[Dict, None]:
         """
         Calls the pyrosetta, which tends to raise segfaults, hence the whole subpro business.
 
         :param spit_process: run as a separate process to avoid segfaults?
+        :params scaling_factor: multiplied to fix overestimated ddG
         :params mutator_options: neighbour_only_score, outer_constrained for debug
         :return:
         """
+        Mutator.scaling_factor = scaling_factor
+
         if self.pdbblock is None:
             # to do remember what kind of logging happens down here...
             return {'error': 'ValueError', 'msg': 'no PDB block'}
@@ -556,13 +572,17 @@ class ProteinAnalyser(ProteinCore):
         self.energetics = msg
         return msg
 
-    def analyse_gnomad_FF(self, spit_process=True, **mutator_options) -> Union[Dict, None]:
+    def analyse_gnomad_FF(self, spit_process=True, scaling_factor = 1, **mutator_options) -> Union[Dict, None]:
         """
         Calls the pyrosetta, which tends to raise segfaults, hence the whole subpro business.
 
         :param spit_process: run as a separate process to avoid segfaults?
+        :params scaling_factor: multiplied to fix overestimated ddG
+        :params mutator_options: neighbour_only_score, outer_constrained for debug
         :return:
         """
+
+        Mutator.scaling_factor = scaling_factor
         if self.pdbblock is None:
             return {'error': 'ValueError', 'msg': 'no PDB block'}
         ### perpare.
@@ -580,7 +600,10 @@ class ProteinAnalyser(ProteinCore):
         self.energetics_gnomAD = msg
         return msg
 
-    def analyse_other_FF(self, mutation: Union[Mutation, str], algorithm, spit_process=True) -> Union[Dict, None]:
+    def analyse_other_FF(self,
+                         mutation: Union[Mutation, str], algorithm, spit_process=True,
+                         scaling_factor:float = 1,  **mutator_options) -> Union[Dict, None]:
+        Mutator.scaling_factor = scaling_factor
         # sort out mutation
         if isinstance(mutation, str):
             mutation = Mutation(mutation)
@@ -591,11 +614,11 @@ class ProteinAnalyser(ProteinCore):
         if self.pdbblock is None:
             return {'error': 'ValueError', 'msg': 'no PDB block'}
         ### perpare.
-        init_settings = self._init_settings
+        init_settings = {**self._init_settings, **mutator_options}
         init_settings['target_resi'] = mutation.residue_index
 
         def relax(resi, from_resn, to_resn, init_settings):
-            mut = Mutator(**init_settings)  # altered target_residue from taht of the mutation!
+            mut = Mutator(**init_settings)  # altered target_residue from that of the mutation!
             results = mut.analyse_mutation(to_resn)
             return {'coordinates': results['mutant'], 'ddg': results['ddG']}
 
